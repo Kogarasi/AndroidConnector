@@ -28,6 +28,9 @@ public class AndroidConnector : EditorWindow
 	private DateTime		m_LastCompilingDate = new DateTime();		//!< 最後にコンパイルをした時刻
 	private DateTime		m_LastBuildDate = new DateTime();			//!< 最後にビルドした時刻
 
+	private List<Process>	m_ProcessList = new List<Process>();		//!< バックグラウンドで実行しているプロセス
+
+
 	/*! UIのカラー管理 */
 	private Color			m_build_color = new Color();
 	private Color			m_install_color = new Color();
@@ -37,11 +40,10 @@ public class AndroidConnector : EditorWindow
 	//! @brief ウィンドウ表示
 	//! @note .....
 	//----------------------------------------------//
-	[MenuItem("Tools/Android Connection")]
+	[MenuItem("Tools/Android Connector")]
 	static void OpenWindow()
 	{
-		instance = EditorWindow.GetWindow< AndroidConnector >( false, "Connection Android" );
-
+		instance = EditorWindow.GetWindow< AndroidConnector >( false, "Android Connector" );
 	}
 	
 	//----------------------------------------------//
@@ -66,18 +68,22 @@ public class AndroidConnector : EditorWindow
 	//----------------------------------------------//
 	void OnGUI()
 	{
+		EditorGUILayout.BeginVertical();
 
-		GUILayout.Label( "1.Build" );
-		GUILayout.Space( 10 );
+		EditorGUILayout.LabelField( "Compile Script[ " + m_LastCompilingDate.ToLongTimeString() + " ]" );
+
+
+		EditorGUILayout.LabelField( "1.Build [ " + m_LastBuildDate.ToLongTimeString() + " ]" );
+		EditorGUILayout.Space();
 
 		
 		if( m_isCompiling )
 		{
-			GUILayout.Label( "unity compiling script now! and wait for build" );
+			EditorGUILayout.LabelField( "unity compiling script now! and wait for build" );
 		}
 		else
 		{
-			GUILayout.Label( "ready for build!" );
+			EditorGUILayout.LabelField( "ready for build!" );
 		}
 
 		GUI.backgroundColor = m_build_color;
@@ -111,19 +117,18 @@ public class AndroidConnector : EditorWindow
 			}
 		}
 
+		EditorGUILayout.Space();
 
-		GUILayout.Space( 10 );
-
-		GUILayout.Label( "2.Install" );
-		GUILayout.Space( 10 );
+		EditorGUILayout.LabelField( "2.Install" );
+		EditorGUILayout.Space();
 
 		GUI.backgroundColor = m_install_color;
 		foreach( string deviceId in m_deviceList )
 		{
-			GUILayout.BeginHorizontal();
-			GUILayout.Label( deviceId );
+			EditorGUILayout.BeginHorizontal();
+			EditorGUILayout.LabelField( deviceId );
 
-			GUILayout.BeginVertical();
+			EditorGUILayout.BeginVertical();
 
 				// install to android device
 				if( GUILayout.Button( "install" ) )
@@ -136,10 +141,10 @@ public class AndroidConnector : EditorWindow
 					executeAPK( deviceId );
 				}
 
-			GUILayout.EndVertical();
+			EditorGUILayout.EndVertical();
 
-			GUILayout.EndHorizontal();
-			GUILayout.Space( 10 );
+			EditorGUILayout.EndHorizontal();
+			EditorGUILayout.Space();
 		}
 
 		if( GUILayout.Button( "all install" ) )
@@ -149,6 +154,8 @@ public class AndroidConnector : EditorWindow
 				installAPK( deviceId, m_project_root + "\\" + PlayerSettings.bundleIdentifier + ".apk" );
 			}
 		}
+
+		EditorGUILayout.EndVertical();
 	}
 
 	
@@ -186,7 +193,10 @@ public class AndroidConnector : EditorWindow
 		}
 
 		// Refresh Device List
-		getConnectDevices();
+		if( m_ProcessList.Count == 0 )
+		{
+			getConnectDevices();
+		}
 	}
 
 	//----------------------------------------------//
@@ -196,27 +206,19 @@ public class AndroidConnector : EditorWindow
 	void getConnectDevices()
 	{
 
-		m_deviceList.Clear();
+		setProcess( "adb", "devices", (o, e)=>{
+			Process Sender = (Process)o;
 
-		ProcessStartInfo _info = new ProcessStartInfo( "adb", "devices" );
-		_info.CreateNoWindow = true;
-		_info.RedirectStandardOutput = true;
-		_info.UseShellExecute = false;
+			if( Sender.ExitCode != 0 )
+			{
+				UnityEngine.Debug.LogError( "adb devices error : " + Sender.ExitCode );
+				return;
+			}
 
-		Process _Process = new Process();
-		_Process.StartInfo = _info;
-		_Process.Start();
-
-		_Process.WaitForExit();
-
-		if( _Process.ExitCode != 0 )
-		{
-			UnityEngine.Debug.Log( "ERROR : " + _Process.ExitCode );
-		}
-		else
-		{
+			m_deviceList.Clear();
+			
 			// 出力内容を取得
-			string output = _Process.StandardOutput.ReadToEnd();
+			string output = Sender.StandardOutput.ReadToEnd();
 			output = output.Replace( "\r\n", "\n" );
 
 			// 各行に分割
@@ -243,8 +245,9 @@ public class AndroidConnector : EditorWindow
 
 				}
 			}
-
-		}
+			
+			unsetProcess(Sender);
+		});
 	}
 
 	//----------------------------------------------//
@@ -255,21 +258,20 @@ public class AndroidConnector : EditorWindow
 	//----------------------------------------------//
 	void installAPK( string deviceId, string apkPath )
 	{
+	
+		UnityEngine.Debug.Log( "Start installing APK [ " + deviceId + " ]" );
 
-		UnityEngine.Debug.LogWarning( "Start installing APK to " + deviceId );
+		string cmd_option = "-s " + deviceId + " install -r " + apkPath;
 
-		ProcessStartInfo _info = new ProcessStartInfo( "adb", "-s " + deviceId + " install -r " + apkPath );
-		_info.CreateNoWindow = true;
-		_info.RedirectStandardOutput = true;
-		_info.UseShellExecute = false;
+		setProcess( "adb", cmd_option, (o,e)=>{
+			Process sender = (Process)o;
 
-		Process _Process = new Process();
-		_Process.StartInfo = _info;
-		_Process.Start();
+			UnityEngine.Debug.Log( "End installing [ " + deviceId + " ]" );
 
-		_Process.WaitForExit();
+			unsetProcess(sender);
 
-		UnityEngine.Debug.LogWarning( "End installing" );
+		});
+
 	}
 	
 	//----------------------------------------------//
@@ -278,26 +280,47 @@ public class AndroidConnector : EditorWindow
 	//----------------------------------------------//
 	void executeAPK( string deviceId )
 	{
-		UnityEngine.Debug.LogWarning( "Start installing APK to " + deviceId );
-
+		UnityEngine.Debug.Log( "Launch Activity [" + deviceId + "]" );
 
 		string cmd_option = "-s " + deviceId + " shell am start -a android.intent.action.MAIN -n " + PlayerSettings.bundleIdentifier + "/" + __launch_activity;
 
-		//UnityEngine.Debug.Log( cmd_option );
+		setProcess( "adb", cmd_option, (o, e)=>{
+			Process sender = (Process)o;
 
-		ProcessStartInfo _info = new ProcessStartInfo( "adb", cmd_option );
+			UnityEngine.Debug.Log( sender.StandardOutput.ReadToEnd() );
+
+			unsetProcess(sender);
+		});
+
+	}
+
+	void setProcess( string program, string parameter, System.Action<object, EventArgs> callback )
+	{
+		Process _proc;
+
+		ProcessStartInfo _info = new ProcessStartInfo( program, parameter );
 		_info.CreateNoWindow = true;
 		_info.RedirectStandardOutput = true;
 		_info.UseShellExecute = false;
 
-		Process _Process = new Process();
-		_Process.StartInfo = _info;
-		_Process.Start();
+		_proc = Process.Start( _info );
+		_proc.EnableRaisingEvents = true;
+		_proc.Exited += new EventHandler( callback );
 
-		_Process.WaitForExit();
+		m_ProcessList.Add( _proc );
+	}
 
-		UnityEngine.Debug.Log( _Process.StandardOutput.ReadToEnd() );
+	void unsetProcess( Process process )
+	{
 
-		UnityEngine.Debug.LogWarning( "End installing" );
+		if( process.HasExited == false )
+		{
+			process.Kill();
+		}
+
+		if( m_ProcessList.IndexOf( process ) != 1 )
+		{
+			m_ProcessList.Remove( process );
+		}
 	}
 }
