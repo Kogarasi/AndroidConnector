@@ -24,6 +24,8 @@ public class AndroidConnector : EditorWindow
 	private string			m_project_root = null;							//!< Unityプロジェクトのルートディレクトリ
 	private string			m_adb_path = "C:/android-sdk-windows/platform-tools/adb.exe";		//!< adbへのパス
 
+	private bool			m_auto_exectute = false;						//!< インストール後に自動で実行するか
+
 	private bool			m_isCompiling = false;							//!< スクリプトのコンパイル中かどうか
 	private DateTime		m_LastCompilingDate = new DateTime();			//!< 最後にコンパイルをした時刻
 	private DateTime		m_LastBuildDate;								//!< 最後にビルドした時刻
@@ -157,13 +159,16 @@ public class AndroidConnector : EditorWindow
 
 		GUI.backgroundColor = m_install_color;
 
+		// 接続されているAndroidデバイス
 		{
 			AdbDeviceInfo[] DeviceTemp = m_deviceList.ToArray();
 			foreach( AdbDeviceInfo device in DeviceTemp )
 			{
 				EditorGUILayout.BeginHorizontal();
 					EditorGUILayout.BeginVertical();
-						EditorGUILayout.LabelField( device.DeviceName );
+						//EditorGUILayout.LabelField( device.DeviceName );
+
+						device.isChecked = EditorGUILayout.Toggle( device.DeviceName, device.isChecked );
 						EditorGUILayout.LabelField( device.DeviceId );
 					EditorGUILayout.EndVertical();
 
@@ -177,8 +182,9 @@ public class AndroidConnector : EditorWindow
 
 					if( GUILayout.Button( "execute" ) )
 					{
-						executeAPK( device.DeviceId );
+						executeAPK( device.DeviceId, PlayerSettings.bundleIdentifier );
 					}
+
 
 				EditorGUILayout.EndVertical();
 
@@ -204,6 +210,24 @@ public class AndroidConnector : EditorWindow
 			}
 		}
 
+		GUI.backgroundColor = Color.white;
+
+		m_auto_exectute = EditorGUILayout.Toggle( "execute after installed", m_auto_exectute );
+
+		// 選択したデバイスへのインストール
+		if( GUILayout.Button( "selected install" ) )
+		{
+			AdbDeviceInfo[] DeviceTemp = m_deviceList.ToArray();
+			foreach( AdbDeviceInfo device in DeviceTemp )
+			{
+				if( device.isChecked )
+				{
+					installAPK( device.DeviceId, m_project_root + "\\" + PlayerSettings.bundleIdentifier + ".apk" );
+				}
+			}			
+		}
+
+		// すべてのデバイスへのインストール
 		if( GUILayout.Button( "all install" ) )
 		{
 			AdbDeviceInfo[] DeviceTemp = m_deviceList.ToArray();
@@ -336,6 +360,8 @@ public class AndroidConnector : EditorWindow
 			}
 
 			m_deviceList = tempList;
+			
+			instance.Repaint();
 
 			ProcessManager.unsetProcess(Sender);
 		});
@@ -353,6 +379,7 @@ public class AndroidConnector : EditorWindow
 		UnityEngine.Debug.Log( "Start installing APK [ " + deviceId + " ]" );
 
 		string cmd_option = "-s " + deviceId + " install -r " + apkPath;
+		string buildIdentifier = PlayerSettings.bundleIdentifier;
 
 		ProcessManager.setProcess( m_adb_path, cmd_option, (o,e)=>{
 			Process sender = (Process)o;
@@ -368,8 +395,16 @@ public class AndroidConnector : EditorWindow
 					break;
 				}
 			}
+			
+			if( m_auto_exectute )
+			{
+				executeAPK( deviceId, buildIdentifier );
+			}
+
+			instance.Repaint();
 
 			ProcessManager.unsetProcess(sender);
+
 
 		});
 
@@ -379,11 +414,11 @@ public class AndroidConnector : EditorWindow
 	//! @brief インストールしたAPKの起動
 	//! @note .....
 	//----------------------------------------------//
-	void executeAPK( string deviceId )
+	void executeAPK( string deviceId, string buildIdentifier )
 	{
 		UnityEngine.Debug.Log( "Launch Activity [" + deviceId + "]" );
 
-		string cmd_option = "-s " + deviceId + " shell am start -a android.intent.action.MAIN -n " + PlayerSettings.bundleIdentifier + "/" + __launch_activity;
+		string cmd_option = "-s " + deviceId + " shell am start -a android.intent.action.MAIN -n " + buildIdentifier + "/" + __launch_activity;
 
 		ProcessManager.setProcess( m_adb_path, cmd_option, (o, e)=>{
 			Process sender = (Process)o;
